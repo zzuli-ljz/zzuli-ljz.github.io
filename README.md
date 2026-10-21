@@ -1,335 +1,221 @@
-# 🎓 校园失物招领系统
+# 校园失物招领系统
 
 <div align="center">
 
-![Java](https://img.shields.io/badge/Java-17-orange?style=for-the-badge&logo=java)
+![Java](https://img.shields.io/badge/Java-17-orange?style=for-the-badge&logo=openjdk)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.1.5-brightgreen?style=for-the-badge&logo=spring-boot)
-![H2 Database](https://img.shields.io/badge/H2-Database-blue?style=for-the-badge&logo=h2)
-![Thymeleaf](https://img.shields.io/badge/Thymeleaf-3.1.2-green?style=for-the-badge)
+![Spring Security](https://img.shields.io/badge/Spring%20Security-6-green?style=for-the-badge&logo=spring-security)
+![H2 Database](https://img.shields.io/badge/H2-嵌入式数据库-blue?style=for-the-badge&logo=h2)
+![Thymeleaf](https://img.shields.io/badge/Thymeleaf-3.1.2-darkgreen?style=for-the-badge)
 ![Bootstrap](https://img.shields.io/badge/Bootstrap-5.3-purple?style=for-the-badge&logo=bootstrap)
-
-**一个基于Spring Boot的智能校园失物招领系统，采用观察者模式实现智能匹配功能**
-
-[🚀 快速开始](#-快速开始) • [📖 功能特性](#-功能特性) • [🏗️ 技术架构](#️-技术架构) • [📱 界面预览](#-界面预览) • [👥 团队协作](#-团队协作)
 
 </div>
 
+[简体中文](#-项目简介) | [English](#-english)
+
+一个用 Spring Boot 写的校园失物招领平台。失主发"失物启事"，捡到东西的同学发"拾获启事"，物品过审后系统自动把两边对上，之后走聊天、认领申请、审核、确认的流程把东西还回去。
+
+项目最初的动机是把课程里学的分层架构和设计模式真正落到一个完整的 Web 应用里，而不是停留在 UML 图上。目前系统能完整跑通从发布到归还的全流程。
+
 ---
 
-## 📋 项目简介
+## 📖 项目简介
 
-校园失物招领系统是一个专为校园环境设计的失物招领平台，旨在帮助师生快速找回丢失的物品或归还拾到的物品。系统采用现代化的Web技术栈，提供直观易用的界面和智能的匹配算法。
+### 它解决了什么问题
 
-### 🎯 核心价值
+校园里丢东西的典型流程是：发朋友圈 / 求助群里 → 没人理 → 放弃。这个系统把这个过程结构化了：
 
-- **🔍 智能匹配**：基于观察者模式的智能匹配算法，自动匹配失物与拾获物品
-- **👥 用户友好**：简洁直观的界面设计，支持移动端访问
-- **🔒 安全可靠**：完善的用户认证和权限管理系统
-- **📱 实时通知**：及时的消息推送和状态更新
-- **🛡️ 管理完善**：全面的后台管理和数据统计功能
+- **信息集中**：所有失物 / 拾获信息进同一个池子，可搜索、可浏览；
+- **自动配对**：新物品过审后立刻和历史物品做相似度匹配，命中就直接建对并通知双方，不需要人肉翻帖子碰运气；
+- **归还可追溯**：匹配不等于归还，认领要走"申请 → 管理员审核 → 失主确认"两道验证，避免有人瞎认领。
+
+### 整体流程
+
+```mermaid
+graph LR
+    A[发布物品] --> B[管理员审核]
+    B --> C[自动匹配<br/>MatchingService]
+    C -->|评分达标| D[创建 ItemMatch]
+    D --> E[观察者模式<br/>推送站内通知]
+    E --> F[站内聊天沟通]
+    F --> G[认领申请]
+    G --> H[管理员审核 + 失主确认]
+    H --> I[物品标记已完成]
+```
 
 ---
 
 ## ✨ 功能特性
 
-### 🔐 用户管理
-- **用户注册/登录**：支持邮箱注册，安全的密码验证
-- **个人资料管理**：完善的头像上传和个人信息编辑
-- **权限控制**：基于角色的访问控制（用户/管理员）
+**用户与权限**
+- 注册 / 登录走 Spring Security 表单认证，密码 BCrypt 加密存储；
+- 两种角色：普通用户和管理员，接口层用 `hasRole("ADMIN")` 做方法级控制。未登录可浏览首页、搜索和物品详情，发布、聊天、认领等操作要求登录。
 
-### 📦 物品管理
-- **物品发布**：支持失物发布和拾获物品发布
-- **图片上传**：多图片上传，支持预览和删除
-- **分类管理**：详细的物品分类和位置信息
-- **状态跟踪**：完整的物品状态生命周期管理
+**物品管理**
+- 失物 / 拾获两种类型，支持多图上传（单文件上限 10MB，存本地 `uploads/` 目录）；
+- 物品带两级位置信息（地点 + 详细地点）、分类、以及一个用于匹配的"总权重"字段；
+- 状态机：`待审核 → 待认领 → 已认领 → 已完成`，状态流转由认领流程驱动，不暴露手动改状态的口子。
 
-### 🔍 智能匹配
-- **自动匹配**：基于观察者模式的智能匹配算法
-- **多维度评分**：权重、地点、类别等多因素综合评分
-- **匹配历史**：完整的匹配记录和历史查询
-- **实时通知**：匹配成功时自动推送通知
+**智能匹配**
+- 候选集先做硬性预筛：类型必须相反（失物对拾获）、总权重相同、地点相同、且已过审——不满足的直接不进评分；
+- 通过预筛的候选再算加权相似度（见下文），≥ 0.7 落库为 `ItemMatch`；
+- 同一对物品有唯一性约束（`existsMatchBetweenItems`），重复发布不会产生重复配对。
 
-### 💬 认领流程
-- **认领申请**：详细的认领申请和验证信息
-- **聊天系统**：失主与拾获者之间的实时沟通
-- **审核流程**：管理员审核和用户确认双重验证
-- **状态跟踪**：完整的认领状态跟踪
+**认领与沟通**
+- 认领人提交验证信息（比如描述物品里的细节），管理员先审一道；
+- 管理员通过后**还要失主确认**，这是故意设计的双保险——管理员只能判断材料齐不齐，只有失主能判断"这是不是我的东西"；
+- 聊天按物品维度开线程（`ChatThread`），同两个用户对同一件物品只会有一条线程，带未读计数。
 
-### 🔔 通知系统
-- **实时通知**：系统消息实时推送
-- **通知管理**：通知设置和历史记录
-- **消息分类**：不同类型的通知分类管理
-
-### 🛠️ 管理后台
-- **数据统计**：全面的数据统计和分析
-- **用户管理**：用户信息管理和权限控制
-- **物品管理**：物品审核和状态管理
-- **系统配置**：系统参数和配置管理
+**通知与管理后台**
+- 匹配成功、认领进度变化、审核结果等事件都会生成站内通知；
+- 管理后台覆盖：数据统计看板、用户管理、物品审核、认领审核、举报处理、公告管理。
 
 ---
 
-## 🏗️ 技术架构
+## 🎯 匹配机制（核心）
 
-### 🎨 前端技术
-- **Thymeleaf**：服务端模板引擎
-- **Bootstrap 5**：响应式UI框架
-- **JavaScript**：前端交互逻辑
-- **CSS3**：现代化样式设计
+匹配逻辑集中在 `MatchingService`，是整个项目里最值得看的一段代码。
 
-### ⚙️ 后端技术
-- **Spring Boot 3.1.5**：主框架
-- **Spring Security**：安全认证
-- **Spring Data JPA**：数据持久化
-- **H2 Database**：嵌入式数据库
-- **Lombok**：代码简化
+### 评分函数
 
-### 🎯 设计模式
-- **观察者模式**：智能匹配功能实现
-- **策略模式**：匹配评分算法
-- **模板方法模式**：审核流程管理
-- **依赖注入**：Spring框架依赖管理
-
-### 📊 系统架构图
-
-```mermaid
-graph TB
-    A[用户界面层] --> B[控制器层]
-    B --> C[服务层]
-    C --> D[数据访问层]
-    D --> E[数据库层]
-    
-    C --> F[观察者模式]
-    F --> G[匹配服务]
-    F --> H[通知服务]
-    
-    I[文件存储] --> C
-    J[安全认证] --> B
-    
-    subgraph "核心模块"
-        K[用户管理]
-        L[物品管理]
-        M[匹配系统]
-        N[认领流程]
-        O[通知系统]
-        P[管理后台]
-    end
-    
-    C --> K
-    C --> L
-    C --> M
-    C --> N
-    C --> O
-    C --> P
+```java
+private double calculateMatchScore(Item item1, Item item2) {
+    double score = 0.0;
+    // 总权重一致 +0.4 —— 物品登记时称重/估重得到的字段
+    if (item1.getTotalWeight().equals(item2.getTotalWeight())) score += 0.4;
+    // 一级地点一致 +0.3 —— 比如"教学楼""图书馆"
+    if (item1.getLocation().equals(item2.getLocation())) score += 0.3;
+    // 二级详细地点一致 +0.2 —— 比如"三楼东侧自习区"
+    if (item1.getDetailedLocation() != null && item2.getDetailedLocation() != null
+            && item1.getDetailedLocation().equals(item2.getDetailedLocation())) score += 0.2;
+    // 类别一致 +0.1
+    if (item1.getCategory().equals(item2.getCategory())) score += 0.1;
+    return score;
+}
 ```
+
+权重分配的考虑：失物招领场景里"丢在哪"比"是什么"更稀缺——同一天在教学楼丢一张校园卡的人可能有很多，但丢失地点是一个强区分信号，所以地点两项合计占 50%。权重 0.4 看似很高，但它是匹配的**前置条件**（预筛阶段就要求相等），评分里它更多是兜底。
+
+### 为什么用观察者模式
+
+匹配产生后要做的事不止一件：存库、生成通知、以后可能还要发邮件或接入站内信。如果都写在 `findAndCreateMatches` 里，每加一种通知渠道就要改一次核心逻辑。
+
+所以 `MatchingService` 实现了 `ItemMatchSubject` 接口，用 `CopyOnWriteArrayList` 维护观察者列表，匹配的创建 / 更新 / 取消三种事件各自广播。目前注册的观察者是 `NotificationObserver`（生成站内通知）。这样匹配规则怎么改都不影响通知逻辑，反过来也一样。
+
+选 `CopyOnWriteArrayList` 而不是普通 `ArrayList`，是因为观察者在运行期可能动态增删，而遍历通知的频率远高于修改频率，写时复制的代价可以忽略，还能免掉遍历时的并发问题。
+
+### 已知的取舍
+
+- 评分基于精确相等比较，没有做模糊匹配（比如"水杯"和"保温杯"不会互相命中），这在分类体系足够细的前提下是可接受的，后续可以考虑对标题和描述做文本相似度；
+- 阈值 0.7 硬编码在服务里，如果需要可以抽成配置项（`application.yml` 里已经预留了 `app.matching.similarity-threshold`）。
+
+---
+
+## 🛠️ 技术栈
+
+| 层次 | 选型 | 说明 |
+|------|------|------|
+| 框架 | Spring Boot 3.1.5 / Java 17 | 单体应用，未拆微服务——这个规模没有拆的必要 |
+| 安全 | Spring Security 6 | 表单登录 + 自定义成功跳转 + 方法级权限 |
+| 持久层 | Spring Data JPA (Hibernate) | `ddl-auto: update`，实体即表结构 |
+| 数据库 | H2（文件模式） | 免安装，`data/` 目录即整个数据库 |
+| 视图 | Thymeleaf 3.1.2 + Bootstrap 5 | 服务端渲染，配 thymeleaf-extras-springsecurity6 做页面级权限显隐 |
+| 工具 | Lombok / Commons FileUpload / Validation | — |
+
+模板共 30+ 个页面，覆盖用户端全部流程和管理后台。
 
 ---
 
 ## 🚀 快速开始
 
-### 📋 环境要求
+环境要求：JDK 17+，Maven 3.6+。
 
-- **Java 17+**
-- **Maven 3.6+**
-- **IDE**：推荐 IntelliJ IDEA 或 Eclipse
-
-### 🔧 安装步骤
-
-#### 1. 克隆项目
 ```bash
-git clone https://github.com/your-username/campus-lost-found-system.git
-cd campus-lost-found-system
-```
-
-#### 2. 配置数据库
-系统使用H2嵌入式数据库，无需额外配置。数据库文件将自动创建在 `data/` 目录下。
-
-#### 3. 运行项目
-```bash
-# 使用Maven运行
+git clone https://github.com/zzuli-ljz/zzuli-ljz.github.io.git
+cd zzuli-ljz.github.io
 mvn spring-boot:run
-
-# 或者先编译再运行
-mvn clean package
-java -jar target/campus-lost-found-system-1.0.0.jar
 ```
 
-#### 4. 访问系统
-- **应用地址**：http://localhost:8081/campus-lost-found
-- **H2控制台**：http://localhost:8081/campus-lost-found/h2-console
-  - JDBC URL: `jdbc:h2:file:./data/lostfounddb`
-  - 用户名: `sa`
-  - 密码: (空)
+首次启动时 `DataInitializer` 会检测到空库，自动创建测试账号、示例物品和若干匹配记录；之后再启动会跳过初始化，数据持久化在 `data/lostfounddb` 文件里。想重置数据，删掉 `data/` 目录重启即可。
 
-### 👤 默认账户
+启动后访问 **http://localhost:8081/campus-lost-found/**（端口和 context path 都在 `application.yml`）。
 
-系统启动后会自动创建以下测试账户：
+默认测试账号：
 
-| 角色 | 用户名 | 密码 | 说明 |
-|------|--------|------|------|
-| 管理员 | admin | admin123 | 系统管理员账户 |
-| 普通用户 | user1 | user123 | 测试用户账户 |
-| 普通用户 | user2 | user123 | 测试用户账户 |
+| 角色 | 用户名 | 密码 |
+|------|--------|------|
+| 管理员 | `admin` | `admin123` |
+| 普通用户 | `user` / `lisi` / `wangwu` / `zhaoliu` | 均为 `user123` |
+
+调试数据库可以开 H2 控制台：`http://localhost:8081/campus-lost-found/h2-console`，JDBC URL 填 `jdbc:h2:file:./data/lostfounddb`，用户名 `sa`，密码留空。
 
 ---
 
-## 📱 界面预览
+## 📂 项目结构
 
-### 🏠 首页
-- 最新发布的失物和拾获物品展示
-- 快速搜索和筛选功能
-- 系统公告和帮助信息
+```
+src/main/java/com/campus/lostfound/
+├── CampusLostFoundApplication.java
+├── config/        # SecurityConfig、DataInitializer、观察者装配
+├── controller/    # Item / Match / Claim / Chat / Notification / Admin ...
+├── service/       # MatchingService、ClaimService、ChatService 等业务逻辑
+├── observer/      # ItemMatchSubject / ItemMatchObserver / NotificationObserver
+├── entity/        # User、Item、ItemMatch、Claim、ChatThread 等 JPA 实体
+├── repository/    # Spring Data JPA 接口
+└── dto/
 
-### 📝 物品发布
-- 直观的物品信息填写界面
-- 多图片上传和预览功能
-- 详细的位置和分类选择
-
-### 🔍 智能匹配
-- 自动匹配结果展示
-- 匹配评分和详细信息
-- 一键联系功能
-
-### 💬 聊天系统
-- 实时消息交流
-- 文件传输支持
-- 消息历史记录
-
-### 🛠️ 管理后台
-- 数据统计仪表板
-- 用户和物品管理
-- 系统配置和监控
+src/main/resources/
+├── application.yml
+├── templates/     # Thymeleaf 页面（30+）
+└── static/        # CSS / JS / 图片资源
+```
 
 ---
 
-## 👥 团队协作
+## 🌍 English
 
-### 🎯 项目分工
+### Overview
 
-| 成员 | 负责模块 | 主要功能 |
+A campus lost & found platform built with Spring Boot 3.1.5 and Java 17. Students post **lost** or **found** notices; once a post passes moderation, the system automatically cross-matches it against historical posts, and matched pairs go through in-site chat, a claim application, admin review, and a final owner confirmation before an item is marked resolved.
+
+The project was started to put layered architecture and GoF design patterns into practice in a complete, runnable web application rather than stopping at UML diagrams.
+
+### Key features
+
+- **Auto matching** — the core of the system. Candidates are pre-filtered by hard constraints (opposite post type, equal item weight, same location, approved status), then scored by a weighted similarity function: item weight 0.4 + location 0.3 + detailed location 0.2 + category 0.1. Pairs scoring ≥ 0.7 are persisted as `ItemMatch` records, with uniqueness checks to prevent duplicates.
+- **Observer pattern** — `MatchingService` acts as the subject (`ItemMatchSubject`), keeping observers in a `CopyOnWriteArrayList` and broadcasting match-created / updated / cancelled events. `NotificationObserver` turns these events into in-app notifications, keeping matching logic fully decoupled from notification channels.
+- **Two-step claim verification** — a claim must pass admin review *and* owner confirmation. The admin can only judge whether the submitted evidence looks plausible; only the true owner can confirm identity of the item. This intentionally redundant step prevents false claims.
+- **Item lifecycle as a state machine** — `PENDING_APPROVAL → PENDING_CLAIM → CLAIMED → COMPLETED`, transitions driven exclusively by the claim workflow.
+- **Per-item chat threads** — one `ChatThread` per (item, user pair) with unread counts.
+- **Role-based access** — Spring Security form login with BCrypt; public browsing, authenticated posting/chat, and `ADMIN`-only backend (dashboards, user management, moderation, reports, announcements).
+
+### Getting started
+
+Requires JDK 17+ and Maven 3.6+.
+
+```bash
+git clone https://github.com/zzuli-ljz/zzuli-ljz.github.io.git
+cd zzuli-ljz.github.io
+mvn spring-boot:run
+```
+
+On first launch, `DataInitializer` seeds demo accounts, items and match records into the embedded H2 database (stored under `data/`). Delete the folder to reset.
+
+Open **http://localhost:8081/campus-lost-found/**
+
+| Role | Username | Password |
 |------|----------|----------|
-| **张三** | 用户管理 + 系统架构 | 用户认证、权限控制、系统架构设计 |
-| **李四** | 物品发布模块 | 物品发布、图片上传、分类管理 |
-| **王五** | 搜索匹配模块 | 智能匹配算法、搜索功能 |
-| **赵六** | 认领流程模块 | 认领申请、聊天系统、审核流程 |
-| **钱七** | 通知系统模块 | 消息推送、通知管理、举报功能 |
-| **孙八** | 管理后台模块 | 数据统计、用户管理、系统配置 |
+| Admin | `admin` | `admin123` |
+| User | `user` / `lisi` / `wangwu` / `zhaoliu` | `user123` |
 
-### 🌿 分支策略
+### Design notes
 
-- **main**：主分支，存放稳定可发布的代码
-- **develop**：开发分支，集成所有功能开发
-- **feature/***：功能分支，按开发者姓名和功能命名
-- **hotfix/***：修复分支，用于紧急问题修复
-
-### 📋 开发规范
-
-- **代码提交**：使用规范的提交信息格式
-- **代码审查**：所有代码必须经过审查才能合并
-- **测试要求**：新功能必须包含相应的测试用例
-- **文档更新**：功能变更需要同步更新文档
+Location carries a combined weight of 0.5 in the scoring function because in a campus setting, *where* an item was lost is a far stronger discriminator than *what* it was — many people may lose a campus card on the same day, but rarely at the exact same spot. Exact-equality scoring (no fuzzy text matching) is a known trade-off, acceptable given the fine-grained category and two-level location taxonomy; a title/description similarity pass is a natural next step.
 
 ---
 
-## 📊 项目统计
+## 📝 备注
 
-<div align="center">
-
-| 指标 | 数量 |
-|------|------|
-| 📁 总文件数 | 80+ |
-| 💻 代码行数 | 5000+ |
-| 🎨 模板文件 | 30+ |
-| 🏗️ 实体类 | 13+ |
-| 🎮 控制器 | 12+ |
-| ⚙️ 服务类 | 8+ |
-
-</div>
-
----
-
-## 🛠️ 开发工具
-
-### 推荐IDE配置
-- **IntelliJ IDEA**：推荐使用，支持Spring Boot开发
-- **插件推荐**：
-  - Lombok Plugin
-  - Spring Boot Helper
-  - Thymeleaf Plugin
-
-### 数据库工具
-- **H2 Console**：内置Web控制台
-- **DBeaver**：通用数据库管理工具
-
-### 版本控制
-- **Git**：版本控制
-- **GitHub Desktop**：图形化Git客户端
-
----
-
-## 📚 相关文档
-
-- [📖 系统设计文档](校园失物招领系统匹配机制设计分析文档.md)
-- [👥 团队协作指南](项目分工和分支策略.md)
-- [🚀 快速上手指南](快速上手指南.md)
-- [🧪 测试计划](校园失物招领系统角色测试计划.md)
-
----
-
-## 🤝 贡献指南
-
-我们欢迎所有形式的贡献！请遵循以下步骤：
-
-1. **Fork** 本仓库
-2. 创建您的特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交您的更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开一个 **Pull Request**
-
-### 📝 提交规范
-
-我们使用 [Conventional Commits](https://www.conventionalcommits.org/) 规范：
-
-- `feat:` 新功能
-- `fix:` 修复bug
-- `docs:` 文档更新
-- `style:` 代码格式调整
-- `refactor:` 代码重构
-- `test:` 测试相关
-- `chore:` 构建过程或辅助工具的变动
-
----
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
-
----
-
-## 🙏 致谢
-
-感谢所有为这个项目做出贡献的团队成员：
-
-- **张三** - 系统架构师
-- **李四** - 前端开发工程师
-- **王五** - 算法工程师
-- **赵六** - 后端开发工程师
-- **钱七** - 测试工程师
-- **孙八** - 运维工程师
-
----
-
-## 📞 联系我们
-
-- **项目地址**：[GitHub Repository](https://github.com/your-username/campus-lost-found-system)
-- **问题反馈**：[Issues](https://github.com/your-username/campus-lost-found-system/issues)
-- **邮箱联系**：campus-lost-found@example.com
-
----
-
-<div align="center">
-
-**⭐ 如果这个项目对您有帮助，请给我们一个Star！**
-
-Made with ❤️ by Campus Lost & Found Team
-
-</div>
+- H2 只适合开发演示，换 MySQL 只需要改 `application.yml` 的 datasource 和依赖；
+- 匹配阈值与权重想调整的话，改 `MatchingService#calculateMatchScore` 一处即可；
+- 仓库里 `data/` 下带着一份初始化好的测试库，克隆后直接启动就能看到示例数据效果。
